@@ -3,6 +3,16 @@
 本文件记录用户可见的变化。格式遵循 Keep a Changelog，版本规则见 `AGENTS.md §版本号管理`。
 日常改动只追加到「未发布」；只有发版提交才动 `dsh-plugin/package.json` 的 `version`。
 
+## 0.1.3 — 2026-11-05
+
+### 修复
+
+- **DSH 重启后远端页面不再要求重新扫码**：网关把 launch token 兑换到的 DSH 会话 Cookie
+  只缓存在内存，并在每个已鉴权 HTTP / WebSocket 请求转发前注入上游，覆盖浏览器里上一次
+  进程留下的旧 `dsh-auth-*`；缓存为空时按需兑换，失败冷却 5 秒。
+- DSH Cookie 与 launch token 仍不落盘、不进日志、不出现在 `/api/status`；网关自己的
+  `dbr_session` 校验逻辑不变。
+
 ## 0.1.2 — 2026-11-05
 
 ### 修复

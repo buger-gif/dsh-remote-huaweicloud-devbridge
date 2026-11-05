@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-huaweicloud-devbridge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "用华为云 DevBridge 开发隧道把本地 DeepSeek Harness 安全地暴露给远端设备远控；插件内置鉴权网关、隧道生命周期与侧边栏控制台。",
   "type": "module",
   "main": "./lib/index.js",
