@@ -3,44 +3,41 @@
 > 新会话第一读取点。本文是**唯一允许写时效指针**的地方：就地改写，不做沿革。
 > 开源标准与红线在 `AGENTS.md`，文档规矩在 `docs/README.md`。
 
-## 现在到哪了（2026-11-05 18:45 核对）
+## 现在到哪了（2026-11-05 19:20 核对）
 
-**已公开发布。** GitHub 公开仓库 <https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>
-（topics `dsh` / `dsh-plugin`）已推送；npm 包 `dsh-remote-huaweicloud-devbridge@0.1.0`
-已进入 `registry.npmjs.org`。
+**已公开发布，且发布通道已切换到 OIDC。** GitHub 公开仓库
+<https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>（topics `dsh` / `dsh-plugin`）；
+npm 包最新版 `dsh-remote-huaweicloud-devbridge@0.1.1`，由 `v0.1.1` tag 经
+Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 
 已核对的读数：
 
 - `bash scripts/gate.sh`：**6/6 全绿**（js-check / docs / contracts / secrets / tests / redlines）；
-- 全量单测与契约对账（路由 / 配置键 / 状态字段 / 版本 / 构建产物）全绿；
-- `npm pack --dry-run` 产物干净；`lib/client.js` 与 `web/panel.js` + 模板一致；
-- 仓库里无地址占位符、无真实隧道 URL / 令牌 / Cookie / 个人路径；
-- npm 侧：packument `dist-tags.latest = 0.1.0`，tarball 直连 **HTTP 200 / 60,615 字节**，
-  23 个文件含 `LICENSE` / `cordis.patch.yml` / `lib` / `web` / `scripts`；
-- 干净目录 `npm i dsh-remote-huaweicloud-devbridge` 实测成功（224K，0 vulnerabilities）；
-- 发布 workflow 的「发布到 npmjs.org」步骤为 success，仅「发布后自检」因 registry
-  传播慢超时，已重跑修正为绿。
+- npm 侧：`dist-tags.latest = 0.1.1`，tarball 直连 **HTTP 200 / 58,185 字节**，
+  22 个文件，**已无 `e2ee` 相关文件**；`0.1.1` 带 SLSA provenance（`dist.attestations`）；
+- 包设置页 Trusted Publisher：`buger-gif` / 本仓库 / `publish.yml`，状态 **Valid**，
+  权限 `npm publish` + `npm stage publish` + `npm dist-tag`；
+- 发布访问策略已收紧为 **disallow bypass 2fa tokens**（npm 推荐项）；
+- `NPM_TOKEN` secret 已删除；本轮创建的两个 granular token 已全部吊销；
+- 包页 <https://www.npmjs.com/package/dsh-remote-huaweicloud-devbridge> 正常渲染 `0.1.1` 与中文 README；
+- 仓库描述已按实际改为「中继只是数据管道、可见明文；保护来自令牌网关而非加密」。
 
 ## 还没做完（不阻塞首发，但要盯）
 
 1. **应用层加密已否决（ADR 0001）**：密码学核心与单测已随决策移除，`lib/` 下不再有
    `e2ee.js`。对外一律按「中继可见明文」表述；这不是待办，翻案须新起 ADR。
-2. **npm 可信发布（OIDC）**：包设置页已建立 Trusted Publisher 连接
-   （GitHub Actions / `buger-gif` / `dsh-remote-huaweicloud-devbridge` / `publish.yml`，
-   权限含 `npm publish` 与 `npm dist-tag`），状态 **Pending validation**：须在
-   2026-11-07 11:08 UTC 前用该 workflow 成功发布一次才算生效，`v0.1.1` 即为此而发。
-   生效后删除 `NPM_TOKEN` secret 与对应 granular token（bypass-2FA、7 天、全包权限）。
-3. **`0.0.0-stage` 残留版本**：npm 首次 staged publish 产生的占位版本，仍在版本列表里，
-   但不指向 `latest`、不影响安装。可信发布落地后用 `npm unpublish ...@0.0.0-stage`
-   清掉，使包页恢复正常展示。
-4. **版本硬编码三处**：`lib/index.js`（2 处）/ `lib/control.js`（1 处），当前为 `0.1.1`，
+2. **`0.0.0-stage` 残留版本**：仍在版本列表（`3 Versions`），但不指向 `latest`、
+   不影响安装、不再出现在包页首屏。删除它需要 OTP，而 `npm unpublish` 被 npm 新策略
+   拒绝（bypass-2FA 令牌不得执行该操作），网页亦不提供删除单版本入口。
+   需要清掉时用支持 WebAuthn 的设备带 OTP 执行 `npm unpublish ...@0.0.0-stage`。
+3. **版本硬编码三处**：`lib/index.js`（2 处）/ `lib/control.js`（1 处），当前 `0.1.1`，
    长期改为从 `package.json` 读取；契约测试保证一致且不允许新增第四处。
-5. **发布后自检已加固**：不再依赖 `npm view` 缓存，改查 packument `versions` 并验证
-   tarball 直连 200，轮询窗口拉到 6 分钟（`v0.1.1` 起生效）。
+4. **本地发版已不可用 bypass 令牌**：策略收紧后只能走 OIDC（打 tag）或带 OTP 的交互式发布。
+   这是预期行为，不要为了「图方便」把策略调回去。
 
-## 0.1.0 首发完成标准
+## 发布流程（现状）
 
-- GitHub 公开仓库已建、代码已推送、topics 含 `dsh` / `dsh-plugin`；**已完成**
-- `v0.1.0` tag 触发 `publish.yml`，`npm view` 能查到 `0.1.0`；**已完成**
-- 红线清单清零：无真实 URL / 令牌 / Cookie / 二维码 / 个人路径 / 内网信息；**已完成**
-- 仓库描述与 README 说明「华为云只是数据通道」，并如实声明不做应用层加密；**已完成**
+1. 改 `CHANGELOG.md`「未发布」小节 → 改成 `## X.Y.Z — YYYY-MM-DD`；
+2. 同步 `dsh-plugin/package.json` 与 `lib/index.js`（2 处）、`lib/control.js`（1 处）的版本号；
+3. `bash scripts/gate.sh` 全绿 → 提交 `chore(release): vX.Y.Z` → 打 tag 并推送；
+4. `publish.yml` 用 OIDC 发布并附 provenance，自检查 packument `versions` + tarball 直连。
