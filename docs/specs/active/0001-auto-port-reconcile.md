@@ -67,7 +67,7 @@ DevBridge 的 `host` 会给隧道里**每一个已配置端口**各打印一行 
       删除能力缺失或删除失败时不阻塞启动，最终仍拿到 `gatePort` URL。
 - [x] 真实 CLI：临时隧道建两个额外端口 → 对账后只剩 `gatePort` → 删除临时隧道；
       用户现有隧道不在验证中改动。
-- [ ] `bash scripts/gate.sh` 全绿；`cd dsh-plugin && npm pack --dry-run` 干净。
+- [x] `bash scripts/gate.sh` 全绿；`cd dsh-plugin && npm pack --dry-run` 干净。
 - [ ] 发布 0.1.2 后，面板/二维码固定为 `gatePort` 入口，旧端口链接不再生成。
 
 ## 契约影响
