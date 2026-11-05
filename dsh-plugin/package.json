@@ -1,0 +1,71 @@
+{
+  "name": "dsh-remote-huaweicloud-devbridge",
+  "version": "0.1.0",
+  "description": "用华为云 DevBridge 开发隧道把本地 DeepSeek Harness 安全地暴露给远端设备远控；插件内置鉴权网关、隧道生命周期与侧边栏控制台。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "scripts": {
+    "prepack": "node scripts/build-client.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
+    "build:client": "node scripts/build-client.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "bin": {
+    "dsh-devbridge-install": "./scripts/postinstall.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "web",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "huaweicloud",
+    "devbridge",
+    "remote-control",
+    "tunnel"
+  ],
+  "author": "buger-gif",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge.git",
+    "directory": "dsh-plugin"
+  },
+  "homepage": "https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge/tree/main/dsh-plugin",
+  "bugs": {
+    "url": "https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge/issues"
+  }
+}

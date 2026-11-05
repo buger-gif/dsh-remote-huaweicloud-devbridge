@@ -1,0 +1,18 @@
+# dsh-remote-huaweicloud-devbridge — bundle patch
+#
+# 安装时自动把插件挂进 profile 组合。config 可在此覆盖，也可在
+# ~/.dsh/devbridge-remote/config.json 或插件侧边栏面板里改（面板优先）。
+# 所有项都有安全默认值，留空即可用。
+- insert:
+    - id: dsh-remote-huaweicloud-devbridge
+      name: dsh-remote-huaweicloud-devbridge
+      config:
+        enabled: true
+        # 首次安装默认不自动联网；在侧边栏点「开启远控」后再决定是否设为 true。
+        autoStart: false
+        gatePort: 3081
+        tunnelExpirationHours: 72
+        protocol: auto
+        # DevBridge 隧道侧允许匿名，真正的门禁由插件内置网关承担（token + Cookie）。
+        # 若改为 false，远端浏览器还须先用华为云账号登录 DevBridge。
+        allowAnonymous: true

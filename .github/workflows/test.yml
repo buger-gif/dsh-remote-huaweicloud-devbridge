@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static-gate:
+    name: 静态层（语法 / 文档 / 契约 / 红线）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: bash scripts/gate.sh --quick
+
+  regression:
+    name: 全量单测（离线，不连真实中继）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: node --test
+        working-directory: dsh-plugin
+        # --test-timeout 防止未关闭的 socket 把 CI 挂死；正常应在几秒内结束。
+        run: node --test --test-timeout=20000 tests/*.test.mjs

@@ -1,0 +1,16 @@
+{
+  "_comment": "活文档行数预算（scripts/verify_docs.py 强制）：上限 = 现值 + 约 12% 余量。涨到顶就就地精简，确需扩写先在此说明并调高上限。冻结区（CHANGELOG.md、docs/specs/archive/、docs/decisions/{proposed,implemented,rejected}/、docs/audits/）与静态公约不设预算。2026-11-05 随开源基础文档建立初版；同日开源发布前补「传输与加密现状」章节与自动发布流程，上调 AGENTS/README/SECURITY/architecture/插件 README/PROGRESS 的上限。",
+  "AGENTS.md": 185,
+  "README.md": 155,
+  "CONTRIBUTING.md": 100,
+  "SECURITY.md": 85,
+  "dsh-plugin/README.md": 165,
+  "docs/README.md": 115,
+  "docs/architecture.md": 150,
+  "docs/specs/README.md": 55,
+  "docs/decisions/README.md": 55,
+  "docs/implementation/PROGRESS.md": 90,
+  "docs/specs/contracts/01-api.md": 65,
+  "docs/specs/contracts/02-config.md": 75,
+  "docs/specs/contracts/03-state.md": 60
+}

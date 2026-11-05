@@ -1,0 +1,98 @@
+name: publish
+
+# 发版：打 vX.Y.Z tag 即自动发布到 registry.npmjs.org。
+#
+# 凭据用仓库 Actions secret NPM_TOKEN（granular access token，勾选绕过 2FA），
+# 不进仓库、不打印。长期方案是 npm Trusted Publishing（OIDC）：在 npm 包设置里
+# 登记本仓库 + 本工作流文件名后，可去掉 NPM_TOKEN，改用 id-token: write。
+#
+# 首次发布也走这里：包名未被占用时由 tag 触发创建，不需要本地 npm publish。
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只跑校验与打包预演，不发布"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 版本一致性校验
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "package.json=$PKG  tag=$TAG"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag 与 package.json 版本不一致：$TAG vs $PKG"
+            exit 1
+          fi
+
+      - name: 全量门禁（静态层 + 全部测试 + 红线扫描）
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/gate.sh
+
+      - name: 打包预演
+        run: npm pack --dry-run
+
+      - name: 这个版本是否已发布
+        id: exists
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "dsh-remote-huaweicloud-devbridge@$V" version >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$V 已在 npm 上，跳过发布（仍会校验 tag、跑门禁与打包预演）"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 发布到 npmjs.org
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true && steps.exists.outputs.skip != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -o pipefail
+          if ! npm publish --access public 2>&1 | tee publish.log; then
+            tail -8 publish.log | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+            exit 1
+          fi
+
+      - name: 发布后自检
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+        run: |
+          V=$(node -p "require('./package.json').version")
+          for i in $(seq 1 18); do
+            if npm view "dsh-remote-huaweicloud-devbridge@$V" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "npm 上已可见 $V（第 $i 次轮询）"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::发布后 3 分钟仍查不到 $V；先看 npm 包页，不要急着重发"
+          exit 1

@@ -1,0 +1,29 @@
+# 本机运行数据与凭据（公开仓库红线，禁止 git add -f 绕过）
+devbridge-remote/
+web-token
+dsh-plugin/**/state.json
+dsh-plugin/**/config.json
+*.log
+*.db
+*.db-journal
+*.tmp-*
+
+# 本地私有痕迹（会话记忆 / 计划草稿 / 截图）
+.workbuddy/
+.zcode/
+*.local.*
+screenshots/
+
+# Node / Python
+node_modules/
+package-lock.json
+__pycache__/
+*.py[cod]
+
+# 发布凭据与打包产物（NPM_TOKEN 只放 GitHub Actions secret）
+.npmrc
+*.tgz
+publish.log
+
+# 系统
+.DS_Store
