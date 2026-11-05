@@ -3,7 +3,7 @@
 > 新会话第一读取点。本文是**唯一允许写时效指针**的地方：就地改写，不做沿革。
 > 开源标准与红线在 `AGENTS.md`，文档规矩在 `docs/README.md`。
 
-## 现在到哪了（2026-11-05 19:58 核对）
+## 现在到哪了（2026-11-05 20:40 核对）
 
 **已公开发布 0.1.3，发布通道仍是 OIDC。** GitHub 公开仓库
 <https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>（topics `dsh` / `dsh-plugin`）；
@@ -26,7 +26,13 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
   权限 `npm publish` + `npm stage publish` + `npm dist-tag`；
 - 发布访问策略已收紧为 **disallow bypass 2fa tokens**（npm 推荐项）；
 - `NPM_TOKEN` secret 已删除；历史 granular token 已全部吊销；
-- 仓库描述已按实际改为「中继只是数据管道、可见明文；保护来自令牌网关而非加密」。
+- 仓库描述已按实际改为「中继只是数据管道、可见明文；保护来自令牌网关而非加密」；
+- 插件市场：已向 `awesome-dsh-plugin/awesome-dsh-plugin` 提交收录 PR
+  [#12334](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/12334)，
+  单文件 `data/plugins/buger-gif__dsh-remote-huaweicloud-devbridge--dsh-plugin.yml`，
+  分类 `remote`；PR 只加了一个文件，README 不手改。本地跑了上游
+  `scripts/check-submission.mjs`，唯一红是仓库年龄（创建不足 1 天），按上游规则会自动重跑，
+  预计 **2026-11-06 10:26Z** 后转绿，不要推空提交或重开 PR。
 
 ## 还没做完（不阻塞首发，但要盯）
 
@@ -44,6 +50,8 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
    挂进同一条隧道，必须先重新设计清理边界并补 ADR。
 6. **spec 0002 待重启验收**：安装已完成，但运行进程还是 0.1.2；重启 DSH 后按验收项
    复核并归档。
+7. **市场收录 PR #12334 待合并**：年龄门槛自动转绿后等维护者评审；若被打回，只改自己
+   那条 YAML，不碰别人的条目，也不手工改生成的 README。合并后再来更新本节。
 
 ## 发布流程（现状）
 
