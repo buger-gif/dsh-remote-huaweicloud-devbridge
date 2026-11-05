@@ -3,7 +3,23 @@
 本文件记录用户可见的变化。格式遵循 Keep a Changelog，版本规则见 `AGENTS.md §版本号管理`。
 日常改动只追加到「未发布」；只有发版提交才动 `dsh-plugin/package.json` 的 `version`。
 
-## 未发布
+## 0.1.1 — 2026-11-05
+
+### 变更
+
+- **移除应用层加密核心**（`lib/e2ee.js` 与对应单测）。在「手机纯浏览器 + 保留原生 UI +
+  中继不可信」三条同时成立时，这层只能防被动留存、防不了中继改写下发脚本窃取密钥，
+  已按 ADR 0001 否决。README、`SECURITY.md`、架构文档统一声明「中继可见明文」，
+  不再保留默认未启用的加密设施。推理与被否决的备选见
+  `docs/decisions/rejected/0001-drop-application-layer-e2ee.md`。
+- **发布凭据改为 OIDC 可信发布**：`publish.yml` 不再读取 `NPM_TOKEN`，改用 npm
+  Trusted Publishing（GitHub Actions OIDC + `id-token: write`），发布时附 provenance。
+  仓库与包设置里都不再需要长期令牌。
+
+### 修复
+
+- 发布后自检改用 packument `versions` + tarball 直连判定，轮询窗口从 3 分钟拉到 6 分钟，
+  避免 registry 传播慢导致的假红。
 
 ## 0.1.0 — 2026-11-05
 

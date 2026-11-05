@@ -2,9 +2,10 @@ name: publish
 
 # 发版：打 vX.Y.Z tag 即自动发布到 registry.npmjs.org。
 #
-# 凭据用仓库 Actions secret NPM_TOKEN（granular access token，勾选绕过 2FA），
-# 不进仓库、不打印。长期方案是 npm Trusted Publishing（OIDC）：在 npm 包设置里
-# 登记本仓库 + 本工作流文件名后，可去掉 NPM_TOKEN，改用 id-token: write。
+# 凭据走 npm Trusted Publishing（OIDC）：仓库不存任何长期 token。
+# npm 包设置页已登记本仓库 + 本工作流文件名 publish.yml，
+# 因此这里只需要 id-token: write，由 npm CLI 用短时 OIDC 令牌换取发布权限。
+# 注意：Trusted Publishing 需要 npm >= 11.5.1，所以发布前显式升级 npm。
 #
 # 首次发布也走这里：包名未被占用时由 tag 触发创建，不需要本地 npm publish。
 
@@ -21,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # OIDC 可信发布必需
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -41,6 +43,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Trusted Publishing 要求 npm >= 11.5.1，setup-node 自带的 npm 10.x 不够
+      - name: 升级 npm（OIDC 发布要求 >= 11.5.1）
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: 版本一致性校验
         if: startsWith(github.ref, 'refs/tags/v')
@@ -64,35 +72,40 @@ jobs:
         id: exists
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          NAME=$(node -p "require('./package.json').name")
           V=$(node -p "require('./package.json').version")
-          if npm view "dsh-remote-huaweicloud-devbridge@$V" version >/dev/null 2>&1; then
+          if curl -fsS "https://registry.npmjs.org/$NAME" | jq -e --arg v "$V" '.versions[$v]' >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$V 已在 npm 上，跳过发布（仍会校验 tag、跑门禁与打包预演）"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 发布到 npmjs.org
+      - name: 发布到 npmjs.org（OIDC 可信发布）
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true && steps.exists.outputs.skip != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -o pipefail
-          if ! npm publish --access public 2>&1 | tee publish.log; then
-            tail -8 publish.log | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          if ! npm publish --access public --provenance 2>&1 | tee publish.log; then
+            tail -12 publish.log | while IFS= read -r l; do echo "::error::${l:0:400}"; done
             exit 1
           fi
 
+      # 判据用 packument 的 versions + tarball 直连，比 npm view 的缓存层可靠
       - name: 发布后自检
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
         run: |
+          NAME=$(node -p "require('./package.json').name")
           V=$(node -p "require('./package.json').version")
-          for i in $(seq 1 18); do
-            if npm view "dsh-remote-huaweicloud-devbridge@$V" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "npm 上已可见 $V（第 $i 次轮询）"
-              exit 0
+          for i in $(seq 1 36); do
+            DOC=$(curl -fsS "https://registry.npmjs.org/$NAME" 2>/dev/null || echo '{}')
+            if echo "$DOC" | jq -e --arg v "$V" '.versions[$v]' >/dev/null 2>&1; then
+              TB=$(echo "$DOC" | jq -r --arg v "$V" '.versions[$v].dist.tarball')
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 30 "$TB" || echo 000)
+              LATEST=$(echo "$DOC" | jq -r '."dist-tags".latest')
+              echo "npm 上已可见 $V（第 $i 次轮询）；tarball HTTP $CODE；latest=$LATEST"
+              [ "$CODE" = "200" ] && exit 0
             fi
             sleep 10
           done
-          echo "::error::发布后 3 分钟仍查不到 $V；先看 npm 包页，不要急着重发"
+          echo "::error::发布后 6 分钟仍查不到 $V 或 tarball 不可下载；先看 npm 包页，不要急着重发"
           exit 1

@@ -23,24 +23,24 @@
 
 ## 还没做完（不阻塞首发，但要盯）
 
-1. **端到端加密接线**：`dsh-plugin/lib/e2ee.js` 与 `dsh-plugin/tests/e2ee.test.mjs`
-   已落地；浏览器侧 WebCrypto 实现、网关握手与面板接线仍缺失，**默认未启用**。
-   接线完成前公开表述一律按现状，见 `README.md §传输与加密现状`；动手前先写 spec + ADR。
-2. **npm 可信发布（OIDC）**：npm 包设置页的 Trusted Publisher 表单已填好
-   （GitHub Actions / `buger-gif` / 本仓库 / `publish.yml`），提交时需再过一次 2FA，
-   **待用户本人在场完成**。完成后删除 `NPM_TOKEN` secret 与对应 granular token
-   （该 token 为 bypass-2FA、有效期 7 天、权限覆盖全部包）。
+1. **应用层加密已否决（ADR 0001）**：密码学核心与单测已随决策移除，`lib/` 下不再有
+   `e2ee.js`。对外一律按「中继可见明文」表述；这不是待办，翻案须新起 ADR。
+2. **npm 可信发布（OIDC）**：包设置页已建立 Trusted Publisher 连接
+   （GitHub Actions / `buger-gif` / `dsh-remote-huaweicloud-devbridge` / `publish.yml`，
+   权限含 `npm publish` 与 `npm dist-tag`），状态 **Pending validation**：须在
+   2026-11-07 11:08 UTC 前用该 workflow 成功发布一次才算生效，`v0.1.1` 即为此而发。
+   生效后删除 `NPM_TOKEN` secret 与对应 granular token（bypass-2FA、7 天、全包权限）。
 3. **`0.0.0-stage` 残留版本**：npm 首次 staged publish 产生的占位版本，仍在版本列表里，
    但不指向 `latest`、不影响安装。可信发布落地后用 `npm unpublish ...@0.0.0-stage`
-   清掉，使包页恢复正常展示（包页当前仍渲染占位版本，属 npm 站点数据滞后）。
-4. **版本硬编码三处**：`lib/index.js`（2 处）/ `lib/control.js`（1 处）的 `0.1.0`，
+   清掉，使包页恢复正常展示。
+4. **版本硬编码三处**：`lib/index.js`（2 处）/ `lib/control.js`（1 处），当前为 `0.1.1`，
    长期改为从 `package.json` 读取；契约测试保证一致且不允许新增第四处。
-5. **自检窗口偏短**：`publish.yml` 的「发布后自检」为 18×10s（3 分钟），
-   registry 慢时会给假红；下次发版前改查 packument `versions` 并把窗口拉到 6 分钟。
+5. **发布后自检已加固**：不再依赖 `npm view` 缓存，改查 packument `versions` 并验证
+   tarball 直连 200，轮询窗口拉到 6 分钟（`v0.1.1` 起生效）。
 
 ## 0.1.0 首发完成标准
 
 - GitHub 公开仓库已建、代码已推送、topics 含 `dsh` / `dsh-plugin`；**已完成**
 - `v0.1.0` tag 触发 `publish.yml`，`npm view` 能查到 `0.1.0`；**已完成**
 - 红线清单清零：无真实 URL / 令牌 / Cookie / 二维码 / 个人路径 / 内网信息；**已完成**
-- 仓库描述与 README 说明「华为云只是数据通道」，并如实标注 E2EE 尚未默认启用；**已完成**
+- 仓库描述与 README 说明「华为云只是数据通道」，并如实声明不做应用层加密；**已完成**

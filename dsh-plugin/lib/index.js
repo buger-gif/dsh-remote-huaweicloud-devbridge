@@ -136,7 +136,7 @@ export function apply(ctx, cordisConfig = {}) {
 
     // 独立控制页：内联 panel.js，不依赖客户端注入是否成功。
     if ((path === "/" || path === "/panel" || path === "/index.html") && (req.method || "GET").toUpperCase() === "GET") {
-      return send(res, 200, renderPage({ api: PREFIX, token: API_TOKEN, version: "0.1.0" }));
+      return send(res, 200, renderPage({ api: PREFIX, token: API_TOKEN, version: "0.1.1" }));
     }
     if (!path.startsWith("/api/")) return send(res, 404, { error: "not found", path });
     if ((req.method || "GET").toUpperCase() === "OPTIONS") return send(res, 204, {});
@@ -176,7 +176,7 @@ export function apply(ctx, cordisConfig = {}) {
       getConfig, state, getTunnel, getGate, log,
       getLaunchInfo: () => refreshLaunch(),
       setLaunchUrl: () => refreshLaunch(),
-      version: "0.1.0",
+      version: "0.1.1",
     });
 
     // 注册同源 API + 独立控制页。

@@ -32,7 +32,7 @@ export function pairingUrlFor(tunnelUrl, token) {
 }
 
 export class Control {
-  constructor({ getConfig, state, getTunnel, getGate, log, getLaunchInfo = null, setLaunchUrl = null, getLaunchToken = null, version = "0.1.0" } = {}) {
+  constructor({ getConfig, state, getTunnel, getGate, log, getLaunchInfo = null, setLaunchUrl = null, getLaunchToken = null, version = "0.1.1" } = {}) {
     this.getConfig = getConfig;
     this.state = state;
     this.getTunnel = getTunnel;
