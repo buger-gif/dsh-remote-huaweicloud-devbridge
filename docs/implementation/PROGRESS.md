@@ -3,7 +3,7 @@
 > 新会话第一读取点。本文是**唯一允许写时效指针**的地方：就地改写，不做沿革。
 > 开源标准与红线在 `AGENTS.md`，文档规矩在 `docs/README.md`。
 
-## 现在到哪了（2026-11-05 20:40 核对）
+## 现在到哪了（2026-11-05 20:30 核对）
 
 **已公开发布 0.1.3，发布通道仍是 OIDC。** GitHub 公开仓库
 <https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>（topics `dsh` / `dsh-plugin`）；
@@ -20,8 +20,8 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 - 0.1.2 的端口自动对账已在临时隧道实测；spec 0001 已归档；
 - 0.1.3 修复 DSH 重启后的旧会话 Cookie：网关内存缓存 launch token 兑换结果，并在每个
   已鉴权 HTTP / WebSocket 请求转发前注入上游。单测覆盖纯函数、HTTP 注入与 WS 注入；
-- 本机 desktop profile 已安装 `0.1.3`；当前运行进程仍是 `0.1.2`，**重启 DSH 后**验证
-  「带旧 Cookie 直接打开根路径不再报 `authentication required`」，spec 0002 待归档；
+- 本机 desktop profile 已安装并重启加载 `0.1.3`；实测只带网关会话、不带当前 DSH Cookie
+  请求根路径返回 `200`，旧 Cookie 不再触发 `authentication required`；spec 0002 已归档；
 - 包设置页 Trusted Publisher：`buger-gif` / 本仓库 / `publish.yml`，状态 **Valid**，
   权限 `npm publish` + `npm stage publish` + `npm dist-tag`；
 - 发布访问策略已收紧为 **disallow bypass 2fa tokens**（npm 推荐项）；
@@ -48,9 +48,7 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
    这是预期行为，不要为了「图方便」把策略调回去。
 5. **端口对账假设隧道专用**：启动时会删除 `gatePort` 以外的端口；若未来允许把其他服务
    挂进同一条隧道，必须先重新设计清理边界并补 ADR。
-6. **spec 0002 待重启验收**：安装已完成，但运行进程还是 0.1.2；重启 DSH 后按验收项
-   复核并归档。
-7. **市场收录 PR #12334 待合并**：年龄门槛自动转绿后等维护者评审；若被打回，只改自己
+6. **市场收录 PR #12334 待合并**：年龄门槛自动转绿后等维护者评审；若被打回，只改自己
    那条 YAML，不碰别人的条目，也不手工改生成的 README。合并后再来更新本节。
 
 ## 发布流程（现状）

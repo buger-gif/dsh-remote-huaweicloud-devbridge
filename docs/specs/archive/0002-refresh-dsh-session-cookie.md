@@ -1,6 +1,6 @@
 # 0002 · DSH 会话 Cookie 自动刷新
 
-- 状态：实施中
+- 状态：已验收
 - 目标版本：0.1.3
 - 日期：2026-11-05
 
@@ -53,7 +53,8 @@ dsh web authentication required; reopen the URL printed by dsh web.
 - [x] WebSocket：升级请求携带旧 Cookie 时，上游收到注入后的新 Cookie。
 - [x] 未认证请求仍被挡在登录页，网关 Cookie 不泄漏给 DSH。
 - [x] `bash scripts/gate.sh` 全绿；`npm pack --dry-run` 干净。
-- [ ] 发布 0.1.3 后重启 DSH，直接打开根路径不再出现 `dsh web authentication required`。
+- [x] 发布 0.1.3 后重启 DSH，直接打开根路径不再出现 `dsh web authentication required`。
+      实测：只带网关会话、不带当前 DSH Cookie 请求根路径返回 200。
 
 ## 契约影响
 
