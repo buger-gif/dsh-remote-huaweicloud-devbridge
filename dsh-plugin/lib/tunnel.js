@@ -39,6 +39,73 @@ export function extractTunnelUrl(text) {
   return scored.length ? scored[0].u : "";
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+export function stripAnsi(text) {
+  return String(text ?? "").replace(ANSI_RE, "");
+}
+
+/** 从 `devbridge port list` 表格里取端口号；只认每行首个 1–65535 的整数。 */
+export function parsePortList(text) {
+  const ports = new Set();
+  for (const line of stripAnsi(text).split(/\r?\n/)) {
+    const m = line.trim().match(/^(\d{1,5})(?:\s|$)/);
+    if (!m) continue;
+    const port = Number(m[1]);
+    if (port >= 1 && port <= 65535) ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
+/** 收集所有带 `Tunnel URL:` 标签的 URL，保持出现顺序并去重。 */
+export function extractTunnelUrls(text) {
+  const out = [];
+  if (!text) return out;
+  const re = /Tunnel\s*URL\s*[:=]\s*(https?:\/\/[^\s"'<>\]\)]+)/gi;
+  for (const m of String(text).matchAll(re)) {
+    const url = m[1].replace(/[.,;]+$/, "");
+    if (!out.includes(url)) out.push(url);
+  }
+  return out;
+}
+
+/**
+ * 取隧道公网端口：优先 URL 的显式端口；DevBridge 的 URL 通常把端口放在
+ * hostname 首段（`<tunnelId>-<port>.domain`），这里一并识别。
+ */
+export function urlPort(url) {
+  try {
+    const u = new URL(url);
+    if (u.port) return Number(u.port);
+    const first = (u.hostname.split(".")[0] || "");
+    const m = first.match(/-(\d{2,5})$/) || first.match(/^(\d{2,5})$/);
+    if (m) return Number(m[1]);
+    return u.protocol === "https:" ? 443 : 80;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 从 host 输出里选唯一入口：优先端口等于 gatePort 的那条；
+ * 只有一个候选时接受它（公网端口可能由服务端另行分配）；
+ * 多个候选且没有匹配项时返回空，宁可暂时不给链接，也不写死死端口。
+ */
+export function pickTunnelUrl(text, preferredPort = 0) {
+  const urls = extractTunnelUrls(text);
+  if (urls.length) {
+    const want = Number(preferredPort) || 0;
+    if (want) {
+      const hit = urls.find((u) => urlPort(u) === want);
+      if (hit) return hit;
+    }
+    return urls.length === 1 ? urls[0] : "";
+  }
+  // 没有标签时退回旧启发式，但只在恰好一个候选时采用，避免多行里抓错。
+  const loose = new Set((String(text || "").match(URL_RE) || []).map((u) => u.replace(/[.,;]+$/, "")));
+  return loose.size === 1 ? [...loose][0] : "";
+}
+
 /** 从 create 输出 / list 表格里取 tunnelId。 */
 export function extractTunnelId(text) {
   if (!text) return "";
@@ -137,6 +204,10 @@ export class TunnelManager {
     this.startedAt = 0;
     this.disposed = false;
     this.outputTail = [];
+    this.hostBuffer = "";
+    this.hostUrls = new Set();
+    this.hostSettled = false;
+    this.portsAligned = false;
   }
 
   status() {
@@ -336,18 +407,65 @@ export class TunnelManager {
     return id;
   }
 
-  /** 配置端口；已存在则跳过。匿名策略由插件门禁兜底，默认允许以便手机直接扫码。 */
-  async ensurePort() {
-    const id = this.tunnelId;
-    const port = this.config.gatePort;
-    const list = await this.#run(["port", "list", id], { allowFailure: true });
-    const existing = `${list.stdout}\n${list.stderr}`;
-    const portPresent = new RegExp(`(^|\\D)${port}(\\D|$)`).test(existing);
-    if (portPresent) {
-      this.log.info(`端口 ${port} 已在隧道 ${id} 上配置，跳过创建`);
-      return true;
+  /** 读隧道端口列表；CLI 失败返回 null（区别于“没有端口”）。 */
+  async #listPorts() {
+    const r = await this.#run(["port", "list", this.tunnelId], { allowFailure: true });
+    if (!r.ok) {
+      this.log.debug(`读取隧道端口失败，跳过自动清理: ${(r.stderr || r.stdout).trim().slice(0, 160)}`);
+      return null;
     }
+    return parsePortList(`${r.stdout}\n${r.stderr}`);
+  }
 
+  /** 删除历史残留端口；返回是否全部清理成功。CLI 不支持时按失败处理。 */
+  async #prunePorts(ports) {
+    if (!ports.length) return true;
+    const help = await this.#help(["port", "delete"]);
+    const portFlag = pickFlag(help, ["--port-number", "-p", "--port"]);
+    if (!portFlag) {
+      this.log.debug("当前 CLI 不支持 port delete，跳过历史端口清理");
+      return false;
+    }
+    let ok = true;
+    for (const port of ports) {
+      const r = await this.#run(["port", "delete", this.tunnelId, portFlag, String(port)], { allowFailure: true });
+      const out = `${r.stderr} ${r.stdout}`.trim();
+      if (r.ok || /not\s*found|no such|not\s*configured|不存在/i.test(out)) {
+        this.log.debug(`已清理历史端口 ${port}`);
+      } else {
+        ok = false;
+        this.log.debug(`清理历史端口 ${port} 失败，继续启动: ${out.slice(0, 160)}`);
+      }
+    }
+    return ok;
+  }
+
+  /**
+   * 隧道端口对账：只保留 gatePort。
+   * 隧道归插件专用，其余端口一律视为历史残留并自动删除；用户不需要看到或手动处理。
+   */
+  async reconcilePorts() {
+    const port = Number(this.config.gatePort);
+    const existing = await this.#listPorts();
+    let pruned = true;
+    this.portsAligned = false;
+    if (existing) {
+      pruned = await this.#prunePorts(existing.filter((p) => p !== port));
+      if (existing.includes(port)) {
+        this.portsAligned = pruned;
+        this.log.debug(`端口 ${port} 已就绪`);
+        return true;
+      }
+    }
+    await this.#createPort(port);
+    // list 失败时无法确认是否还有残留，保守地不启用“单入口不同端口”兜底。
+    this.portsAligned = Boolean(existing) && pruned;
+    return true;
+  }
+
+  /** 创建 gatePort；匿名策略由插件门禁兜底，默认允许以便手机直接扫码。 */
+  async #createPort(port) {
+    const id = this.tunnelId;
     const help = await this.#help(["port", "create"]);
     const portFlag = pickFlag(help, ["--port-number", "-p", "--port"]);
     const protoFlag = pickFlag(help, ["--protocol"]);
@@ -363,13 +481,34 @@ export class TunnelManager {
     let r = await this.#run(args, { allowFailure: true });
     if (!r.ok && /unknown flag|unknown shorthand/i.test(r.stderr)) {
       const minimal = ["port", "create", id, ...(portFlag ? [portFlag, String(port)] : [])];
-      this.log.warn("port create 参数回退", r.stderr.trim().slice(0, 160));
+      this.log.debug("port create 参数回退", r.stderr.trim().slice(0, 160));
       r = await this.#run(minimal, { allowFailure: true });
     }
     if (!r.ok && !/already|exist|重复/i.test(`${r.stderr} ${r.stdout}`)) {
       throw new Error(`配置端口失败：${(r.stderr || r.stdout).trim().slice(0, 300) || "无输出"}`);
     }
-    this.log.info(`端口 ${port} 已绑定隧道 ${id}`);
+    this.log.debug(`端口 ${port} 已绑定隧道 ${id}`);
+    return true;
+  }
+
+  #setTunnelUrl(url) {
+    if (!url || url === this.tunnelUrl) return false;
+    this.tunnelUrl = url;
+    this.retryCount = 0;
+    this.state.patch({ tunnelUrl: url });
+    this.log.info(`Tunnel URL: ${url}`);
+    return true;
+  }
+
+  /**
+   * 只有一个候选、且端口对账已确认“隧道里只剩 gatePort”时，才接受与 gatePort
+   * 不同的公网端口（服务端可能另行分配）。多入口或清理未完成时宁可报错也不写死死端口。
+   */
+  #adoptSingleUrl() {
+    if (this.tunnelUrl || !this.portsAligned || this.hostUrls.size !== 1) return false;
+    const [only] = this.hostUrls;
+    this.#setTunnelUrl(only);
+    this.log.debug(`采用 host 输出的公网端口 ${urlPort(only)}（本机网关 ${this.config.gatePort}）`);
     return true;
   }
 
@@ -388,21 +527,45 @@ export class TunnelManager {
     this.startedAt = Date.now();
     this.phase = "hosting";
     this.outputTail = [];
+    this.hostBuffer = "";
+    this.hostUrls = new Set();
+    this.hostSettled = false;
+    // 旧入口先清掉：宁可暂时没有链接，也不让上一轮的残留 URL 继续出现在面板/二维码里。
+    this.tunnelUrl = "";
+    this.state.patch({ tunnelUrl: "" });
 
     const onData = (chunk) => {
-      const text = String(chunk);
-      for (const line of text.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        this.outputTail.push(line.trim());
+      this.hostBuffer += String(chunk);
+      const lines = this.hostBuffer.split(/\r?\n/);
+      this.hostBuffer = lines.pop() ?? "";
+      if (this.hostBuffer.length > 8192) this.hostBuffer = this.hostBuffer.slice(-4096);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        this.outputTail.push(trimmed);
         if (this.outputTail.length > 40) this.outputTail.shift();
-        this.log.debug("host:", line.trim().slice(0, 300));
+        this.log.debug("host:", trimmed.slice(0, 300));
       }
-      const url = extractTunnelUrl(text);
-      if (url && url !== this.tunnelUrl) {
-        this.tunnelUrl = url;
-        this.retryCount = 0;
-        this.state.patch({ tunnelUrl: url });
-        this.log.info(`Tunnel URL: ${url}`);
+      // 只在完整行上选 URL，避免 chunk 边界把 URL 截断后写进 state。
+      const text = lines.join("\n");
+      const want = Number(this.config.gatePort);
+      const labeled = extractTunnelUrls(text);
+      if (labeled.length) {
+        for (const url of labeled) this.hostUrls.add(url);
+      } else {
+        // 老版本 / 裁剪输出可能没有 "Tunnel URL:" 标签；只在唯一候选时收纳。
+        const only = pickTunnelUrl(text, want);
+        if (only) this.hostUrls.add(only);
+      }
+      const matched = [...this.hostUrls].find((url) => urlPort(url) === want);
+      if (matched) {
+        this.#setTunnelUrl(matched);
+      } else if (/Ready to accept connections/i.test(text)) {
+        if (this.hostUrls.size > 1) {
+          this.log.debug(`host 输出 ${this.hostUrls.size} 个入口，没有与网关端口 ${want} 匹配的项`);
+        }
+        this.hostSettled = true;
+        this.#adoptSingleUrl();
       }
     };
     child.stdout?.on("data", onData);
@@ -414,6 +577,9 @@ export class TunnelManager {
     child.on("exit", (code, signal) => {
       this.hostChild = null;
       this.pid = null;
+      this.hostBuffer = "";
+      this.hostUrls = new Set();
+      this.hostSettled = false;
       if (this.disposed || this.phase === "stopped") return;
       this.log.warn(`host 退出 (code=${code}, signal=${signal || "none"})`);
       this.tunnelUrl = "";
@@ -422,12 +588,13 @@ export class TunnelManager {
 
     // 最多等 connectTimeoutMs 拿 URL；拿不到也不阻塞插件，面板会显示错误。
     const deadline = Date.now() + this.config.connectTimeoutMs;
-    while (!this.tunnelUrl && Date.now() < deadline) {
+    while (!this.tunnelUrl && !this.hostSettled && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200));
       if (!this.hostChild) break;
     }
+    if (!this.tunnelUrl) this.#adoptSingleUrl();
     if (!this.tunnelUrl) {
-      this.lastError = "host 已启动但未输出 Tunnel URL；请检查 host 日志与中继连通性";
+      this.lastError = "host 已启动但没有给出可用入口；请点「重启远控」重试（插件会自动对齐隧道端口）";
       this.log.warn(this.lastError);
     }
     return this.tunnelUrl;
@@ -454,7 +621,7 @@ export class TunnelManager {
     this.retryTimer.unref?.();
   }
 
-  /** 完整启动链：预检 → 建/复用隧道 → 配端口 → 起 host。 */
+  /** 完整启动链：预检 → 建/复用隧道 → 端口对账 → 起 host。 */
   async start() {
     if (this.disposed) throw new Error("manager disposed");
     if (!this.config.enabled) throw new Error("插件已在配置中禁用");
@@ -463,7 +630,7 @@ export class TunnelManager {
     const ok = await this.preflight();
     if (!ok) return this.status();
     if (!this.tunnelId) await this.ensureTunnel();
-    await this.ensurePort();
+    await this.reconcilePorts();
     await this.startHost();
     return this.status();
   }

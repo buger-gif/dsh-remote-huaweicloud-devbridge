@@ -3,7 +3,7 @@
 > 非平凡改动**先写 spec 再动手**。模板是 `docs/specs/_template.md`；
 > 总规矩见 `docs/README.md §spec 流程`，设计铁律见 `AGENTS.md`。
 
-**下一个号：0001**
+**下一个号：0002**
 
 ## 什么时候要写
 

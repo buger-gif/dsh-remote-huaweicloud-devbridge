@@ -42,7 +42,7 @@ DSH 的 Web 服务只监听 `127.0.0.1`，且对 `/api` 有 Host 信任围栏：
 | `lib/index.js` | 宿主装配：注入 webServer、注册同源前缀、生成进程级 API token、启动/卸载生命周期 | 不实现业务判断，不开公网监听 |
 | `lib/config.js` | 配置优先级、路径换算、`config.json` 写回、未知键过滤 | 不依赖 DSH 内部模块，便于离线 import |
 | `lib/gate.js` | 鉴权反代：登录、Cookie、限流、头部清洗、HTTP/WS 透传 | 不落盘令牌，不把外部身份头带给上游 |
-| `lib/tunnel.js` | devbridge CLI 适配、预检、建隧道/配端口/起 host、重连看护、`blocker` 归因 | 不拼隧道域名，不假定 flag 名 |
+| `lib/tunnel.js` | devbridge CLI 适配、预检、建隧道、端口对账、起 host、重连看护、`blocker` 归因 | 不拼隧道域名，不假定 flag 名 |
 | `lib/control.js` | `/api/*` 同源接口、状态汇总、配置写回、扫码链接 | 不把令牌写进日志 |
 | `lib/launch-token.js` | 发现 DSH 启动令牌：人工粘贴 / 进程内服务 / 落盘文件 | 不假定 `web-token` 一定有效 |
 | `lib/state.js` | `state.json`：令牌、隧道 ID / URL / 名、启动链接（`0600`，临时文件 + rename） | 不存会话 Cookie |
@@ -88,8 +88,9 @@ DevBridge 中继终止公网 TLS，看到的是到达网关的明文 HTTP。本�
 3. `gate.start()` 常驻；`enabled` 为真且 `autoStart` 为真时延迟 1.5 秒起隧道，
    否则等人点「开启远控」。
 4. `tunnel.start()`：`preflight`（CLI 版本 / 登录态）→ `ensureTunnel`（重名复用）
-   → `ensurePort`（已存在则跳过）→ `startHost`（等 `connectTimeoutMs` 拿权威 URL）
-   → 挂退出看护，按指数退避重连（上限 `reconnectMaxDelayMs`）。
+   → `reconcilePorts`（自动清理非网关端口，缺了再建）→ `startHost`（等
+   `connectTimeoutMs` 拿与网关端口匹配的权威 URL）→ 挂退出看护，按指数退避重连
+   （上限 `reconnectMaxDelayMs`）。
 5. 卸载时 `tunnel.dispose()` 回收 host 子进程、`gate.stop()` 关闭回环网关。
 
 ## 配置与状态
@@ -110,6 +111,9 @@ DSH 启动令牌按可靠性依次发现：人工粘贴的启动链接（`state.
 - 不假定 flag：每个子命令先读 `--help`，`pickFlag` 选真实存在的候选；遇
   `unknown flag` 去掉可疑 flag 回退最小参数集。
 - 隧道 URL 只从 `host` 进程 stdout/stderr 里提取，绝不按文档拼域名。
+- `host` 会给隧道里每个已配置端口各打印一行 `Tunnel URL`；公网端口 `P` 转发到本机同号
+  端口 `P`。所以插件在起 host 前先把端口对账到只剩 `gatePort`，解析时也只采纳与该端口
+  匹配的 URL；多个入口都对不上时宁可报错，不把不可达链接交给用户。
 - CLI 输出是**不可信数据**：只用于提取 URL / ID，不据此执行命令或改配置。
 - npm 安装时 `scripts/postinstall.mjs` 调 `lib/installer.js`，用华为云官方命令自动装/升级；
   pnpm 不跑第三方 postinstall 时，由 `TunnelManager` 首次预检懒安装兜底（失败冷却 10 分钟）。

@@ -7,12 +7,15 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import {
   TunnelManager, extractTunnelUrl, extractTunnelId, findIdByName,
+  parsePortList, extractTunnelUrls, pickTunnelUrl, urlPort,
 } from "../lib/tunnel.js";
 import { State } from "../lib/state.js";
 import { Log } from "../lib/log.js";
 
 const silent = new Log({ level: "silent", sink: null });
 const TUNNEL_URL = "https://noh56s7x-3081.tunnel.example.com";
+const DEAD_URL = "https://noh56s7x-40576.tunnel.example.com";
+const OTHER_URL = "https://noh56s7x-39005.tunnel.example.com";
 
 test("纯函数：URL / ID 解析与 list 反查", () => {
   assert.equal(extractTunnelUrl(`host started\nTunnel URL: ${TUNNEL_URL}\n`), TUNNEL_URL);
@@ -27,6 +30,28 @@ test("纯函数：URL / ID 解析与 list 反查", () => {
   );
 });
 
+test("纯函数：port list 解析与多 URL 选择", () => {
+  const table = [
+    "Port   Protocol  Allow Anonymous  Tunnel ID",
+    "3081   auto      true             noh56s7x",
+    " 39005 auto      true             noh56s7x",
+    "\x1b[36m40576\x1b[0m auto true noh56s7x",
+    "not-a-port",
+    "70000  auto      true             noh56s7x",
+    "3081   auto      true             noh56s7x",
+  ].join("\n");
+  assert.deepEqual(parsePortList(table), [3081, 39005, 40576]);
+  assert.deepEqual(parsePortList("No ports configured for tunnel x"), []);
+
+  const text = `Tunnel URL: ${DEAD_URL}\nTunnel URL: ${TUNNEL_URL}\n`;
+  assert.deepEqual(extractTunnelUrls(text), [DEAD_URL, TUNNEL_URL]);
+  assert.equal(pickTunnelUrl(text, 3081), TUNNEL_URL);
+  assert.equal(pickTunnelUrl(text, 9999), "");
+  assert.equal(pickTunnelUrl(`Tunnel URL: ${DEAD_URL}\n`, 3081), DEAD_URL);
+  assert.equal(urlPort(TUNNEL_URL), 3081);
+  assert.equal(urlPort("not a url"), 0);
+});
+
 function fixture({ version = "v0.2.2-release", auth = "Logged in as tester" } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dbr-tunnel-"));
   const state = new State({ file: path.join(tmp, "state.json"), logger: silent });
@@ -39,13 +64,15 @@ function fixture({ version = "v0.2.2-release", auth = "Logged in as tester" } = 
     if (args[0] === "auth") return auth ? { stdout: `${auth}\n`, stderr: "" } : Promise.reject(Object.assign(new Error("not logged in"), { stdout: "", stderr: "not logged in" }));
     if (has("--help")) {
       if (args[0] === "create") return { stdout: "Flags:\n  -d, --description string\n  -e, --expiration int\n", stderr: "" };
+      if (args[0] === "port" && args[1] === "delete") return { stdout: "Flags:\n  -p, --port-number int\n", stderr: "" };
       if (args[0] === "port") return { stdout: "Flags:\n  --port-number int\n  --protocol string\n  --allow-anonymous\n  --deny-anonymous\n", stderr: "" };
       return { stdout: "", stderr: "" };
     }
     if (args[0] === "create") return { stdout: "noh56s7x\n", stderr: "" };
     if (args[0] === "list") return { stdout: "Tunnel ID  Name\n", stderr: "" };
-    if (args[0] === "port" && args[1] === "list") return { stdout: "Tunnel ID  Port\n", stderr: "" };
+    if (args[0] === "port" && args[1] === "list") return { stdout: "Port   Protocol  Allow Anonymous  Tunnel ID\n", stderr: "" };
     if (args[0] === "port" && args[1] === "create") return { stdout: "Port added\n", stderr: "" };
+    if (args[0] === "port" && args[1] === "delete") return { stdout: "Port removed\n", stderr: "" };
     return { stdout: "", stderr: "" };
   };
   let child = null;
@@ -74,6 +101,10 @@ function fixture({ version = "v0.2.2-release", auth = "Logged in as tester" } = 
     installer: async () => ({ ok: false, reason: "测试环境禁用自动安装" }),
   });
   return { manager, calls, spawnCalls, state, tmp, getChild: () => child };
+}
+
+function listOutput(...ports) {
+  return ["Port   Protocol  Allow Anonymous  Tunnel ID", ...ports.map((p) => `${p}   auto      true             noh56s7x`)].join("\n");
 }
 
 test("完整启动链：预检 → 建隧道 → 配端口 → 起 host → 拿到权威 URL", async () => {
@@ -133,14 +164,152 @@ test("端口已存在时跳过 port create", async () => {
   const { manager, calls } = fixture();
   const original = manager.execFile;
   manager.execFile = async (...args) => {
-    const r = await original(...args);
     if (args[1][0] === "port" && args[1][1] === "list") {
-      return { stdout: "Tunnel ID  Port\n  noh56s7x   3081\n", stderr: "" };
+      return { stdout: listOutput(3081), stderr: "" };
     }
-    return r;
+    return original(...args);
   };
   await manager.start();
   assert.equal(calls.some((a) => a[0] === "port" && a[1] === "create"), false);
+  await manager.stop();
+});
+
+test("自动对账：删除非网关端口，保留 gatePort", async () => {
+  const { manager, calls } = fixture();
+  const original = manager.execFile;
+  manager.execFile = async (...args) => {
+    if (args[1][0] === "port" && args[1][1] === "list") return { stdout: listOutput(3081, 39005, 40576), stderr: "" };
+    return original(...args);
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, TUNNEL_URL);
+  const deletes = calls.filter((a) => a[0] === "port" && a[1] === "delete" && !a.includes("--help"));
+  assert.deepEqual(deletes.map((a) => a[4]), ["39005", "40576"]);
+  assert.equal(deletes.every((a) => a[2] === "noh56s7x" && a[3] === "--port-number"), true);
+  assert.equal(calls.some((a) => a[0] === "port" && a[1] === "create"), false);
+  assert.equal(manager.portsAligned, true);
+  await manager.stop();
+});
+
+test("端口对账：缺 gatePort 时先清理再创建", async () => {
+  const { manager, calls } = fixture();
+  const original = manager.execFile;
+  manager.execFile = async (...args) => {
+    if (args[1][0] === "port" && args[1][1] === "list") return { stdout: listOutput(39005), stderr: "" };
+    return original(...args);
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, TUNNEL_URL);
+  const deleteAt = calls.findIndex((a) => a[0] === "port" && a[1] === "delete" && !a.includes("--help"));
+  const createAt = calls.findIndex((a) => a[0] === "port" && a[1] === "create" && !a.includes("--help"));
+  assert.ok(deleteAt >= 0 && createAt > deleteAt, "应先清理残留再创建网关端口");
+  assert.equal(calls[deleteAt][4], "39005");
+  assert.equal(calls[createAt].includes("3081"), true);
+  await manager.stop();
+});
+
+test("清理能力缺失或删除失败：只降级，不阻塞启动", async () => {
+  const { manager, calls } = fixture();
+  const original = manager.execFile;
+  manager.execFile = async (...args) => {
+    const a = args[1];
+    if (a[0] === "port" && a[1] === "list") return { stdout: listOutput(3081, 39005), stderr: "" };
+    if (a[0] === "port" && a[1] === "delete" && a.includes("--help")) return { stdout: "Flags:\n  (none)\n", stderr: "" };
+    return original(...args);
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, TUNNEL_URL);
+  assert.equal(calls.some((a) => a[0] === "port" && a[1] === "delete" && !a.includes("--help")), false);
+  assert.equal(manager.portsAligned, false);
+  await manager.stop();
+
+  const { manager: m2 } = fixture();
+  const original2 = m2.execFile;
+  m2.execFile = async (...args) => {
+    const a = args[1];
+    if (a[0] === "port" && a[1] === "list") return { stdout: listOutput(3081, 39005), stderr: "" };
+    if (a[0] === "port" && a[1] === "delete" && !a.includes("--help")) {
+      throw Object.assign(new Error("delete failed"), { stdout: "", stderr: "delete failed", code: 1 });
+    }
+    return original2(...args);
+  };
+  const st2 = await m2.start();
+  assert.equal(st2.tunnelUrl, TUNNEL_URL);
+  assert.equal(m2.portsAligned, false);
+  await m2.stop();
+});
+
+test("host 分块输出：死端口先到也不会覆盖网关 URL", async () => {
+  const { manager, state } = fixture();
+  manager.spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.pid = undefined;
+    child.exitCode = null;
+    child.kill = () => { child.exitCode = 0; child.emit("exit", 0, null); return true; };
+    setTimeout(() => child.stdout.write(`host started\nTunnel URL: ${DEAD_URL}\n`), 5);
+    setTimeout(() => child.stdout.write(`Tunnel URL: ${TUNNEL_URL}\nReady to accept connections\n`), 40);
+    return child;
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, TUNNEL_URL);
+  assert.equal(state.get("tunnelUrl"), TUNNEL_URL);
+  await manager.stop();
+});
+
+test("host 跨 chunk 断行：URL 补全后再采纳", async () => {
+  const { manager } = fixture();
+  manager.spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.pid = undefined;
+    child.exitCode = null;
+    child.kill = () => { child.exitCode = 0; child.emit("exit", 0, null); return true; };
+    setTimeout(() => child.stdout.write("Tunnel URL: https://noh56s7x-30"), 5);
+    setTimeout(() => child.stdout.write("81.tunnel.example.com\nReady to accept connections\n"), 40);
+    return child;
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, TUNNEL_URL);
+  await manager.stop();
+});
+
+test("host 只输出多个死端口：不写 state，给出可执行提示", async () => {
+  const { manager, state } = fixture();
+  manager.config.connectTimeoutMs = 1000;
+  manager.spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.pid = undefined;
+    child.exitCode = null;
+    child.kill = () => { child.exitCode = 0; child.emit("exit", 0, null); return true; };
+    setTimeout(() => child.stdout.write(`Tunnel URL: ${DEAD_URL}\nTunnel URL: ${OTHER_URL}\nReady to accept connections\n`), 5);
+    return child;
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, "");
+  assert.equal(state.get("tunnelUrl"), "");
+  assert.match(st.lastError, /可用入口/);
+  await manager.stop();
+});
+
+test("单入口且端口不同：对账完成后按 host 输出接受", async () => {
+  const { manager } = fixture();
+  manager.spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.pid = undefined;
+    child.exitCode = null;
+    child.kill = () => { child.exitCode = 0; child.emit("exit", 0, null); return true; };
+    setTimeout(() => child.stdout.write("Tunnel URL: https://noh56s7x-45678.tunnel.example.com\nReady to accept connections\n"), 5);
+    return child;
+  };
+  const st = await manager.start();
+  assert.equal(st.tunnelUrl, "https://noh56s7x-45678.tunnel.example.com");
   await manager.stop();
 });
 
