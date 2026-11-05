@@ -3,6 +3,15 @@
 本文件记录用户可见的变化。格式遵循 Keep a Changelog，版本规则见 `AGENTS.md §版本号管理`。
 日常改动只追加到「未发布」；只有发版提交才动 `dsh-plugin/package.json` 的 `version`。
 
+## 0.1.4 — 2026-11-05
+
+### 安全
+
+- **控制面 Host 校验收紧**：只接受精确的 `127.0.0.1`、`localhost`、`::1`，拒绝
+  `127.0.0.1.evil.com`、`127.0.0.1.nip.io` 等前缀变体。修复 DNS rebinding
+  可从同源脚本读取控制页注入的 `x-devbridge-api` token、进而接管远控配置的问题。
+- 集成测试覆盖：伪造 Host 与正确 API token 组合仍返回 403；正常回环 Host 不受影响。
+
 ## 0.1.3 — 2026-11-05
 
 ### 修复

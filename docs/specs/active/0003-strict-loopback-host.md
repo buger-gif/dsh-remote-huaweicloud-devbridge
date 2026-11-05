@@ -44,10 +44,10 @@ rebinding 指到 `127.0.0.1`：浏览器发出的 Host 以 `127.` 开头，旧�
 
 ## 验收
 
-- [ ] 单测/集成：`Host: 127.0.0.1.evil.com`、`127.0.0.1.nip.io`、`localhost.evil.com`
+- [x] 单测/集成：`Host: 127.0.0.1.evil.com`、`127.0.0.1.nip.io`、`localhost.evil.com`
       访问控制页与 API 均 403；`127.0.0.1` / `localhost` 仍 200。
-- [ ] 带正确 `x-devbridge-api` 也不能绕过 Host 校验。
-- [ ] `bash scripts/gate.sh` 全绿；`npm pack --dry-run` 干净。
+- [x] 带正确 `x-devbridge-api` 也不能绕过 Host 校验。
+- [x] `bash scripts/gate.sh` 全绿；`npm pack --dry-run` 干净。
 - [ ] 发布 0.1.4 并安装后，复测 DNS rebinding Host 返回 403。
 
 ## 契约影响
