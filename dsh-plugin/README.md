@@ -120,7 +120,7 @@ npm 公开包的 `postinstall` 会用华为云官方命令自动装好 CLI（pnp
 | `auth-required` | 执行 `devbridge auth login`，或设置 `HW_API_KEY` 后登录 |
 | `gate-failed` | `gatePort` 被占用：`lsof -nP -iTCP:3081 -sTCP:LISTEN` 查一下，改端口后重启 DSH |
 | host 已启动但无 URL | 看面板日志的中继连通性提示；必要时点「忘记隧道」重建 |
-| 扫码后 DSH 主界面报 `authentication required` | 桌面端常把启动令牌只放内存，`~/.dsh/web-token` 是旧值。把 `dsh web` 打印的完整链接粘进面板「DSH 会话兑换」保存一次，重新扫码 |
+| 扫码后 DSH 主界面报 `authentication required` | 0.1.3 起网关会自动刷新 DSH 会话 Cookie，通常刷新页面即可；仍失败说明启动令牌过期，把 `dsh web` 打印的完整链接粘进面板「DSH 会话兑换」保存一次，重新扫码 |
 
 先跑 `npm run doctor`，它会按上表逐项给出「就绪 / 警告 / 阻塞」；
 发布前的剩余待办见 `docs/implementation/PROGRESS.md`。

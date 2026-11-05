@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
 import { once } from "node:events";
-import { Gate, verifySession, signSession, stripGateCookie, buildUpstreamHeaders, COOKIE_NAME } from "../lib/gate.js";
+import { Gate, verifySession, signSession, stripGateCookie, buildUpstreamHeaders, parseSetCookie, withSessionCookies, COOKIE_NAME } from "../lib/gate.js";
 import { Log } from "../lib/log.js";
 
 const TOKEN = "UnitTestAccessToken_0123456789";
@@ -13,6 +13,7 @@ let upstream;
 let upPort;
 let gate;
 let gatePort;
+let lastUpgradeCookie = "";
 
 function baseConfig(over = {}) {
   return {
@@ -29,7 +30,10 @@ function baseConfig(over = {}) {
 test.before(async () => {
   upstream = http.createServer((req, res) => {
     if (req.url.startsWith("/?token=")) {
-      res.setHeader("set-cookie", ["dsh_session=from-dsh; Path=/"]);
+      res.setHeader("set-cookie", [
+        "dsh_session=from-dsh; Path=/",
+        "dsh-auth-unit=fresh; Path=/; HttpOnly; SameSite=Strict",
+      ]);
       res.writeHead(302, { location: "/" });
       return void res.end();
     }
@@ -42,9 +46,17 @@ test.before(async () => {
         url: req.url,
       }));
     }
+    if (req.url === "/protected") {
+      if (!/dsh-auth-unit=fresh/.test(String(req.headers.cookie || ""))) {
+        res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
+        return void res.end("dsh web authentication required; reopen the URL printed by dsh web.");
+      }
+      return void res.end("OK protected");
+    }
     res.end(`OK ${req.url}`);
   });
-  upstream.on("upgrade", (_req, socket) => {
+  upstream.on("upgrade", (req, socket) => {
+    lastUpgradeCookie = req.headers.cookie || "";
     socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
     socket.on("data", (d) => socket.write(`ECHO:${d.toString()}`));
   });
@@ -97,6 +109,23 @@ test("纯函数：转发头把外部 authority 全部改回 loopback", () => {
   assert.equal(headers.accept, "application/json");
 });
 
+test("纯函数：解析 set-cookie 并注入最新 DSH 会话", () => {
+  assert.deepEqual(
+    parseSetCookie("dsh_session=from-dsh; Path=/; HttpOnly"),
+    { name: "dsh_session", value: "from-dsh" },
+  );
+  assert.equal(parseSetCookie("=bad"), null);
+  assert.equal(parseSetCookie(""), null);
+  assert.equal(withSessionCookies("a=1", []), "a=1");
+  assert.equal(
+    withSessionCookies("keep=1; dsh_session=stale; dsh-auth-old=old", [
+      { name: "dsh_session", value: "from-dsh" },
+      { name: "dsh-auth-unit", value: "fresh" },
+    ]),
+    "keep=1; dsh_session=from-dsh; dsh-auth-unit=fresh",
+  );
+});
+
 test("未认证请求被挡在登录页", async () => {
   const r = await fetch(url("/api/echo"), { redirect: "manual" });
   assert.equal(r.status, 401);
@@ -139,6 +168,41 @@ test("X-DevBridge-Auth 头可免 Cookie 访问", async () => {
   assert.equal(r.status, 200);
 });
 
+test("已鉴权请求会懒刷新并注入最新 DSH Cookie", async () => {
+  const g = new Gate({
+    config: baseConfig(), accessToken: TOKEN, logger: silent, webPort: upPort,
+    launchToken: () => "LAUNCH123",
+  });
+  await g.start();
+  const port = g.server.address().port;
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/echo`, {
+      headers: {
+        "x-devbridge-auth": TOKEN,
+        cookie: "keep=1; dsh_session=stale; dsh-auth-old=stale",
+      },
+    });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.match(body.cookie, /dsh_session=from-dsh/);
+    assert.match(body.cookie, /dsh-auth-unit=fresh/);
+    assert.match(body.cookie, /keep=1/);
+    assert.doesNotMatch(body.cookie, /stale|dsh-auth-old/);
+    assert.equal(g.stats.exchanges, 1, "首次代理只兑换一次");
+
+    const protectedRes = await fetch(`http://127.0.0.1:${port}/protected`, {
+      headers: {
+        "x-devbridge-auth": TOKEN,
+        cookie: "dsh-auth-old=stale",
+      },
+    });
+    assert.equal(protectedRes.status, 200, "旧 DSH Cookie 不应导致上游 401");
+    assert.equal(await protectedRes.text(), "OK protected");
+  } finally {
+    await g.stop();
+  }
+});
+
 test("错误令牌被拒绝，连续失败触发限流", async () => {
   const cfg = baseConfig({ maxFails: 3, failWindowMs: 60000 });
   const g = new Gate({ config: cfg, accessToken: TOKEN, logger: silent, webPort: upPort, launchToken: () => "" });
@@ -179,6 +243,7 @@ test("WebSocket upgrade 透传到上游", async () => {
     );
     const [first] = await once(socket, "data");
     assert.match(first.toString(), /101 Switching Protocols/);
+    assert.match(lastUpgradeCookie, /dsh_session=from-dsh/, "WS 升级也应注入最新 DSH Cookie");
     socket.write("PING");
     const [second] = await once(socket, "data");
     assert.match(second.toString(), /ECHO:PING/);

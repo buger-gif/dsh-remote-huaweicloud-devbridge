@@ -74,8 +74,40 @@ export function stripGateCookie(cookieHeader) {
   return kept.join("; ");
 }
 
+/** 只取 `Set-Cookie` 的 name=value，属性（Path/Max-Age 等）不参与注入。 */
+export function parseSetCookie(value) {
+  const first = String(value || "").split(";")[0];
+  const i = first.indexOf("=");
+  if (i <= 0) return null;
+  const name = first.slice(0, i).trim();
+  const val = first.slice(i + 1).trim();
+  if (!name || !val) return null;
+  return { name, value: val };
+}
+
+/**
+ * 把网关从 DSH 换到的最新 Cookie 注入上游请求。
+ * 有缓存时清掉客户端同名项与所有旧的 `dsh-auth-*`，避免重启前的旧 Cookie 被继续转发。
+ */
+export function withSessionCookies(cookieHeader, sessionCookies = []) {
+  const current = String(cookieHeader || "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!sessionCookies.length) return current.join("; ");
+  const names = new Set(sessionCookies.map((c) => c.name));
+  const kept = current.filter((part) => {
+    const i = part.indexOf("=");
+    const name = i < 0 ? part : part.slice(0, i).trim();
+    if (names.has(name)) return false;
+    if (/^dsh-auth-/i.test(name)) return false;
+    return true;
+  });
+  return [...kept, ...sessionCookies.map((c) => `${c.name}=${c.value}`)].join("; ");
+}
+
 /** 生成发往上游的请求头：把外部 authority 全部改回 loopback。 */
-export function buildUpstreamHeaders(req, authority) {
+export function buildUpstreamHeaders(req, authority, sessionCookies = []) {
   const out = {};
   for (const [key, value] of Object.entries(req.headers || {})) {
     const k = key.toLowerCase();
@@ -85,7 +117,7 @@ export function buildUpstreamHeaders(req, authority) {
   out.host = authority;
   if (req.headers?.origin) out.origin = `http://${authority}`;
   if (req.headers?.referer) out.referer = `http://${authority}/`;
-  const cookie = stripGateCookie(req.headers?.cookie);
+  const cookie = withSessionCookies(stripGateCookie(req.headers?.cookie), sessionCookies);
   if (cookie) out.cookie = cookie;
   return out;
 }
@@ -165,6 +197,11 @@ export class Gate {
     this.fails = new Map();
     this.stats = { requests: 0, denied: 0, upgrades: 0, exchanges: 0 };
     this.launchExchange = { ok: false, at: 0, error: "not attempted" };
+    // 内存里的 DSH 会话 Cookie；重启后由 launch token 重新兑换，绝不落盘或写日志。
+    this.dshCookies = [];
+    this.dshCookiesAt = 0;
+    this.dshCookieMissAt = 0;
+    this.dshCookieRefresh = null;
   }
 
   setWebPort(port) {
@@ -229,6 +266,12 @@ export class Gate {
           at: this.now(),
           error: cookies.length ? "" : `上游返回 ${res.statusCode}（启动令牌可能已过期）`,
         };
+        const parsed = cookies.map(parseSetCookie).filter(Boolean);
+        if (parsed.length) {
+          this.dshCookies = parsed;
+          this.dshCookiesAt = this.now();
+          this.dshCookieMissAt = 0;
+        }
         res.resume();
         this.stats.exchanges += 1;
         resolve(cookies);
@@ -245,6 +288,26 @@ export class Gate {
       });
       req.end();
     });
+  }
+
+  /**
+   * 已通过网关鉴权的请求进入代理前，确保手里有一份当前 DSH 的会话 Cookie。
+   * DSH 重启后浏览器仍可能带着旧 Cookie；网关在服务端换一份新的注入上游即可，
+   * 用户不需要重新扫码。没有 launch token 时冷却 5 秒，避免每个请求都打 DSH。
+   */
+  async #ensureDshCookies() {
+    if (this.dshCookies.length) return this.dshCookies;
+    if (this.now() < this.dshCookieMissAt) return [];
+    if (!this.dshCookieRefresh) {
+      this.dshCookieRefresh = this.#exchangeLaunchToken()
+        .then((cookies) => {
+          if (!cookies.length) this.dshCookieMissAt = this.now() + 5000;
+          return this.dshCookies;
+        })
+        .catch(() => [])
+        .finally(() => { this.dshCookieRefresh = null; });
+    }
+    return this.dshCookieRefresh;
   }
 
   /** 认证成功后签发会话 Cookie，并尽力把 DSH 自己的会话一起交给浏览器。 */
@@ -339,13 +402,13 @@ export class Gate {
     return false;
   }
 
-  #proxy(req, res) {
+  #proxy(req, res, dshCookies = []) {
     const upstream = http.request({
       host: this.config.webHost || "127.0.0.1",
       port: this.webPort,
       method: req.method,
       path: req.url,
-      headers: buildUpstreamHeaders(req, this.authority),
+      headers: buildUpstreamHeaders(req, this.authority, dshCookies),
       timeout: 0,
     }, (up) => {
       const headers = { ...up.headers };
@@ -367,7 +430,7 @@ export class Gate {
     res.on("close", () => { if (!upstream.destroyed) upstream.destroy(); });
   }
 
-  #upgrade(req, client, head) {
+  async #upgrade(req, client, head) {
     const cookies = parseCookies(req.headers?.cookie);
     const ok = verifySession(cookies[COOKIE_NAME], this.accessToken, this.now()) ||
       safeEqual(String(req.headers?.["x-devbridge-auth"] || ""), this.accessToken);
@@ -378,11 +441,13 @@ export class Gate {
       return;
     }
     this.stats.upgrades += 1;
+    const dshCookies = await this.#ensureDshCookies();
+    if (client.destroyed) return;
     const upstream = net.connect({
       host: this.config.webHost || "127.0.0.1",
       port: this.webPort,
     });
-    const headers = buildUpstreamHeaders(req, this.authority);
+    const headers = buildUpstreamHeaders(req, this.authority, dshCookies);
     headers.connection = "Upgrade";
     headers.upgrade = req.headers?.upgrade || "websocket";
     let raw = `${req.method || "GET"} ${req.url || "/"} HTTP/1.1\r\n`;
@@ -416,19 +481,26 @@ export class Gate {
       this.stats.requests += 1;
       const url = new URL(req.url || "/", "http://localhost");
       Promise.resolve(this.#handleControl(req, res, url))
-        .then((handled) => {
+        .then(async (handled) => {
           if (handled !== false || res.writableEnded) return;
           const ip = this.#clientIp(req);
           if (this.#rateLimited(ip)) return void this.#deny(req, res, 429, "尝试过多，请稍后再试");
           if (!this.#authorized(req)) return void this.#deny(req, res, 401, "login required");
-          this.#proxy(req, res);
+          const dshCookies = await this.#ensureDshCookies();
+          if (res.writableEnded) return;
+          this.#proxy(req, res, dshCookies);
         })
         .catch((e) => {
           this.log.error("gate handler:", e);
           if (!res.headersSent) send(res, 500, { error: e.message }, { "content-type": "application/json; charset=utf-8" });
         });
     });
-    this.server.on("upgrade", (req, socket, head) => this.#upgrade(req, socket, head));
+    this.server.on("upgrade", (req, socket, head) => {
+      this.#upgrade(req, socket, head).catch((e) => {
+        this.log.debug("ws upgrade:", e.message);
+        try { socket.destroy(); } catch { /* noop */ }
+      });
+    });
     this.server.on("connection", (socket) => {
       this.sockets.add(socket);
       socket.on("close", () => this.sockets.delete(socket));

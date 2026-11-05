@@ -41,7 +41,7 @@ DSH 的 Web 服务只监听 `127.0.0.1`，且对 `/api` 有 Host 信任围栏：
 | --- | --- | --- |
 | `lib/index.js` | 宿主装配：注入 webServer、注册同源前缀、生成进程级 API token、启动/卸载生命周期 | 不实现业务判断，不开公网监听 |
 | `lib/config.js` | 配置优先级、路径换算、`config.json` 写回、未知键过滤 | 不依赖 DSH 内部模块，便于离线 import |
-| `lib/gate.js` | 鉴权反代：登录、Cookie、限流、头部清洗、HTTP/WS 透传 | 不落盘令牌，不把外部身份头带给上游 |
+| `lib/gate.js` | 鉴权反代：登录、Cookie、限流、头部清洗、HTTP/WS 透传、DSH 会话 Cookie 刷新 | 不落盘令牌或 DSH Cookie，不把外部身份头带给上游 |
 | `lib/tunnel.js` | devbridge CLI 适配、预检、建隧道、端口对账、起 host、重连看护、`blocker` 归因 | 不拼隧道域名，不假定 flag 名 |
 | `lib/control.js` | `/api/*` 同源接口、状态汇总、配置写回、扫码链接 | 不把令牌写进日志 |
 | `lib/launch-token.js` | 发现 DSH 启动令牌：人工粘贴 / 进程内服务 / 落盘文件 | 不假定 `web-token` 一定有效 |
@@ -64,7 +64,7 @@ DSH 的 Web 服务只监听 `127.0.0.1`，且对 `/api` 有 Host 信任围栏：
    DSH 重启即换；连接必须来自回环、`Host` 必须是回环名、带 `Origin` 时必须同源。
 5. **匿名 ≠ 放行**：`allowAnonymous: true` 只省掉远端华为云登录，令牌校验照旧。
 6. **数据只在本地**：`~/.dsh/devbridge-remote/` 目录 `700`、文件 `600`；
-   日志只在内存；错误信息不带令牌。
+   日志只在内存；错误信息不带令牌。网关内存里的 DSH 会话 Cookie 随进程退出消失。
 
 ## 传输与加密现状
 
@@ -104,6 +104,10 @@ DSH 启动令牌按可靠性依次发现：人工粘贴的启动链接（`state.
 → 进程内服务的 `launchToken` / `authenticatedUrl()` → `~/.dsh/web-token` 兜底。
 桌面端可能只在进程内持有令牌，落盘文件可能是上一次 `dsh web` 的旧值；
 `POST /api/launch-url` 让用户保存启动链接后重新兑换，拿不到就明确提示，不静默用旧值。
+
+网关还在内存缓存最近一次兑换到的 DSH 会话 Cookie，并在每个已鉴权 HTTP / WebSocket
+请求转发前注入上游，覆盖浏览器里上一次 DSH 进程留下的旧 `dsh-auth-*`。因此 DSH
+重启后远端页面不需要重新扫码；这份缓存不落盘、不进日志，进程退出即消失。
 
 ## devbridge CLI 事实
 
