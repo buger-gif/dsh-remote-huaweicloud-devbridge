@@ -61,7 +61,8 @@ DSH 的 Web 服务只监听 `127.0.0.1`，且对 `/api` 有 Host 信任围栏：
 3. **令牌即密钥**：随机 24 字节 base64url；`verifySession` 以它为 HMAC 密钥，
    所以轮换令牌会让所有已签发 Cookie 同时失效。比较一律用 `timingSafeEqual`。
 4. **控制面隔离**：进程启动时生成的一次性 `x-devbridge-api` token 只注入页面内存，
-   DSH 重启即换；连接必须来自回环、`Host` 必须是回环名、带 `Origin` 时必须同源。
+   DSH 重启即换；连接必须来自回环、`Host` 必须是**精确**回环名（`127.0.0.1` /
+   `localhost` / `::1`，不接受 `127.*` 前缀，防 DNS rebinding）、带 `Origin` 时必须同源。
 5. **匿名 ≠ 放行**：`allowAnonymous: true` 只省掉远端华为云登录，令牌校验照旧。
 6. **数据只在本地**：`~/.dsh/devbridge-remote/` 目录 `700`、文件 `600`；
    日志只在内存；错误信息不带令牌。网关内存里的 DSH 会话 Cookie 随进程退出消失。

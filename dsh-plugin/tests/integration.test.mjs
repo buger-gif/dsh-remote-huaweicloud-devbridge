@@ -12,6 +12,25 @@ const { apply, name } = await import("../lib/index.js");
 
 const PREFIX = "/plugins/devbridge-remote";
 
+function requestWithHost(url, headers = {}) {
+  const u = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: u.hostname,
+      port: u.port,
+      path: `${u.pathname}${u.search}`,
+      method: "GET",
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 test("宿主装配：注册同源路由、注入客户端变量、独立控制页与 API 均可用", async () => {
   assert.equal(name, "dsh-remote-huaweicloud-devbridge");
 
@@ -89,6 +108,17 @@ test("宿主装配：注册同源路由、注入客户端变量、独立控制�
     assert.match(html, /DevBridge/);
     assert.match(html, /DevBridgePanel\.mount/);
     assert.match(html, /DEVBRIDGE_REMOTE_API/);
+
+    for (const host of ["127.0.0.1.evil.com", "127.0.0.1.nip.io", "localhost.evil.com"]) {
+      const rebound = await requestWithHost(`${base}${PREFIX}/`, { host: `${host}:${front.address().port}` });
+      assert.equal(rebound.status, 403, `${host} 必须被 Host 校验拒绝`);
+    }
+    const reboundApi = await requestWithHost(`${base}${PREFIX}/api/status`, {
+      host: `127.0.0.1.evil.com:${front.address().port}`,
+      origin: `http://127.0.0.1.evil.com:${front.address().port}`,
+      "x-devbridge-api": tokenVar.value,
+    });
+    assert.equal(reboundApi.status, 403, "正确 API token 也不能绕过 DNS rebinding Host 校验");
 
     const denied = await fetch(`${base}${PREFIX}/api/status`);
     assert.equal(denied.status, 401, "缺 token 的控制面请求必须拒绝");
