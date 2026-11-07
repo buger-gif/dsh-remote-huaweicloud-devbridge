@@ -3,7 +3,7 @@
 > 新会话第一读取点。本文是**唯一允许写时效指针**的地方：就地改写，不做沿革。
 > 开源标准与红线在 `AGENTS.md`，文档规矩在 `docs/README.md`。
 
-## 现在到哪了（2026-11-06 19:05 核对）
+## 现在到哪了（2026-11-07 09:05 核对）
 
 **已公开发布 0.1.4，发布通道仍是 OIDC。** GitHub 公开仓库
 <https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>（topics `dsh` / `dsh-plugin`）；
@@ -32,11 +32,9 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 - 插件市场：已向 `awesome-dsh-plugin/awesome-dsh-plugin` 提交收录 PR
   [#12334](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/12334)，
   单文件 `data/plugins/buger-gif__dsh-remote-huaweicloud-devbridge--dsh-plugin.yml`，
-  分类 `remote`；PR 只加了一个文件，README 不手改。2026-11-06 19:00 复核：仓库已满
-  1 天（创建 2026-11-05T10:26Z），但 gate 仍是 failure——上游 regate 对「年龄未满」
-  判定有 **24 小时冷却**（以上次判定 2026-11-05T12:50Z 起算），最近一次能重跑的是
-  **2026-11-06T18:19Z** 的定时扫描，预计 **2026-11-07 02:45 CST 前后**转绿；
-  PR 当前无评论、无 `held` 标签。不要推空提交，也不要重开 PR。
+  分类 `remote`；PR 只加了一个文件，README 不手改。2026-11-07 09:00 复核：regate
+  重跑后 **PR check 与 Submission gate 均 pass**（gate 判定 `2026-11-07T01:01Z`），
+  PR 为 `MERGEABLE`、无评论、无 `held` 标签，等维护者评审合并；合并后再更新本节。
 
 ## 还没做完（不阻塞首发，但要盯）
 
@@ -57,9 +55,9 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 7. **安全硬化项（不阻塞，但记着）**：`/__devbridge__/health` 对公网返回 upstream/stats
    （低敏信息）；限流键在隧道后恒为 `127.0.0.1`，恶意请求可全局锁住登录（可用性 DoS）；
    `POST /__devbridge__/login` 的错误令牌未计入失败限流；`dbr_session` 未加 `Secure`。
-8. **市场收录 PR #12334 待合并**：年龄门槛预计 2026-11-07 02:45 CST 前后自动转绿，
-   之后等维护者评审；若被打回，只改自己那条 YAML，不碰别人的条目，也不手工改生成的
-   README。合并后再来更新本节。
+8. **市场收录 PR #12334 待合并**：gate 已转绿（`2026-11-07T01:01Z`），等维护者评审
+   合并；若被打回，只改自己那条 YAML，不碰别人的条目，也不手工改生成的 README。
+   合并后再来更新本节。
 
 ## 发布流程（现状）
 
