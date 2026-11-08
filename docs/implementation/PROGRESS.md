@@ -3,7 +3,7 @@
 > 新会话第一读取点。本文是**唯一允许写时效指针**的地方：就地改写，不做沿革。
 > 开源标准与红线在 `AGENTS.md`，文档规矩在 `docs/README.md`。
 
-## 现在到哪了（2026-11-07 09:05 核对）
+## 现在到哪了（2026-11-08 09:05 核对）
 
 **已公开发布 0.1.4，发布通道仍是 OIDC。** GitHub 公开仓库
 <https://github.com/buger-gif/dsh-remote-huaweicloud-devbridge>（topics `dsh` / `dsh-plugin`）；
@@ -29,12 +29,12 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 - 发布访问策略已收紧为 **disallow bypass 2fa tokens**（npm 推荐项）；
 - `NPM_TOKEN` secret 已删除；历史 granular token 已全部吊销；
 - 仓库描述已按实际改为「中继只是数据管道、可见明文；保护来自令牌网关而非加密」；
-- 插件市场：已向 `awesome-dsh-plugin/awesome-dsh-plugin` 提交收录 PR
-  [#12334](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/12334)，
-  单文件 `data/plugins/buger-gif__dsh-remote-huaweicloud-devbridge--dsh-plugin.yml`，
-  分类 `remote`；PR 只加了一个文件，README 不手改。2026-11-07 09:00 复核：regate
-  重跑后 **PR check 与 Submission gate 均 pass**（gate 判定 `2026-11-07T01:01Z`），
-  PR 为 `MERGEABLE`、无评论、无 `held` 标签，等维护者评审合并；合并后再更新本节。
+- 插件市场：收录 PR
+  [#12334](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/12334)
+  已于 **2026-11-07T17:06Z 合并**（merge commit `4f9a2d2`），条目进入
+  `data/plugins/buger-gif__dsh-remote-huaweicloud-devbridge--dsh-plugin.yml`；
+  市场目录已收录：<https://awesome-dsh-plugin.com/p/buger-gif/dsh-remote-huaweicloud-devbridge--dsh-plugin/>。
+  目录当前先给 GitHub 源安装命令，npm 映射要等每日 02:23Z 的 build-site 探测补齐。
 
 ## 还没做完（不阻塞首发，但要盯）
 
@@ -55,9 +55,6 @@ Trusted Publishing 发布，仓库与账号里都不存在长期发布令牌。
 7. **安全硬化项（不阻塞，但记着）**：`/__devbridge__/health` 对公网返回 upstream/stats
    （低敏信息）；限流键在隧道后恒为 `127.0.0.1`，恶意请求可全局锁住登录（可用性 DoS）；
    `POST /__devbridge__/login` 的错误令牌未计入失败限流；`dbr_session` 未加 `Secure`。
-8. **市场收录 PR #12334 待合并**：gate 已转绿（`2026-11-07T01:01Z`），等维护者评审
-   合并；若被打回，只改自己那条 YAML，不碰别人的条目，也不手工改生成的 README。
-   合并后再来更新本节。
 
 ## 发布流程（现状）
 
